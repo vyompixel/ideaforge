@@ -3,13 +3,15 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: IdeaForge API specification
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: generations
+    description: Project generation operations
 paths:
   /healthz:
     get:
@@ -24,6 +26,149 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /generations:
+    post:
+      operationId: createGeneration
+      tags: [generations]
+      summary: Create a new project generation
+      description: Starts a two-stage AI pipeline (plan + generate) and returns the completed result
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenerationInput"
+      responses:
+        "201":
+          description: Generation completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Generation"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Generation failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    get:
+      operationId: listGenerations
+      tags: [generations]
+      summary: List recent generations
+      description: Returns the 20 most recent generations
+      responses:
+        "200":
+          description: List of generations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Generation"
+
+  /generations/stats:
+    get:
+      operationId: getGenerationStats
+      tags: [generations]
+      summary: Get generation statistics
+      description: Returns counts by output type and recent activity
+      responses:
+        "200":
+          description: Statistics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenerationStats"
+
+  /generations/{id}:
+    get:
+      operationId: getGeneration
+      tags: [generations]
+      summary: Get a generation by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Generation found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Generation"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: deleteGeneration
+      tags: [generations]
+      summary: Delete a generation
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /generations/{id}/tweak:
+    post:
+      operationId: tweakGeneration
+      tags: [generations]
+      summary: Tweak a webapp generation with a chat instruction
+      description: Applies a natural-language tweak to the generated webapp (HTML/CSS/JS) and returns the updated generation
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TweakInput"
+      responses:
+        "200":
+          description: Tweaked generation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Generation"
+        "400":
+          description: Invalid input or not a webapp generation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +179,80 @@ components:
       required:
         - status
 
+    Generation:
+      type: object
+      required: [id, outputType, status, idea, createdAt, updatedAt]
+      properties:
+        id:
+          type: integer
+        outputType:
+          type: string
+          enum: [doc, ppt, charts, webapp]
+        status:
+          type: string
+          enum: [pending, planning, generating, done, error]
+        idea:
+          type: string
+        title:
+          type: ["string", "null"]
+        plan:
+          description: Structured plan from the AI planner stage (JSON object)
+        result:
+          description: Generated output from the AI generator stage (JSON object)
+        errorMessage:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+
+    GenerationInput:
+      type: object
+      required: [idea, outputType]
+      properties:
+        idea:
+          type: string
+          minLength: 10
+          description: The student's project idea description
+        outputType:
+          type: string
+          enum: [doc, ppt, charts, webapp]
+          description: The type of output to generate
+
+    TweakInput:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+          minLength: 1
+          description: Natural-language instruction for tweaking the webapp
+
+    GenerationStats:
+      type: object
+      required: [total, byType, recentCount]
+      properties:
+        total:
+          type: integer
+        byType:
+          type: object
+          properties:
+            doc:
+              type: integer
+            ppt:
+              type: integer
+            charts:
+              type: integer
+            webapp:
+              type: integer
+          required: [doc, ppt, charts, webapp]
+        recentCount:
+          type: integer
+          description: Number of generations in the last 24 hours
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string

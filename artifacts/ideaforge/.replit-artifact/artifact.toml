@@ -1,0 +1,27 @@
+kind = "web"
+previewPath = "/"
+title = "IdeaForge"
+version = "1.0.0"
+id = "artifacts/ideaforge"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 22321
+
+[services.development]
+run = "pnpm --filter @workspace/ideaforge run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/ideaforge", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/ideaforge/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "22321"
+BASE_PATH = "/"
