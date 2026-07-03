@@ -1,0 +1,1 @@
+- [IdeaForge AI pipeline](ideaforge-pipeline.md) — Gemini primary + OpenRouter Nemotron fallback; fallback triggers on both API errors AND JSON parse failures
