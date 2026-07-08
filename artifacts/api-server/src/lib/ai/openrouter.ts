@@ -4,12 +4,12 @@ import { logger } from "../logger.js";
 const apiKey = process.env.OPENROUTER_API_KEY;
 
 // Model chain — tried in order until one succeeds.
-// All are free on OpenRouter and have good JSON instruction-following.
+// Verified free on OpenRouter as of 2026-07-08; different provider pools to spread rate-limit risk.
 const FALLBACK_MODELS = [
-  "meta-llama/llama-3.3-70b-instruct:free",   // strong, supports json_object mode
-  "deepseek/deepseek-chat-v3-0324:free",       // excellent quality, different provider pool
-  "google/gemini-2.0-flash-exp:free",           // Google-hosted, separate rate limits
-  "mistralai/mistral-7b-instruct:free",         // small but reliable last resort
+  "meta-llama/llama-3.3-70b-instruct:free",        // Llama 3.3 70B — strong JSON following
+  "qwen/qwen3-coder:free",                          // Qwen3 Coder 1M ctx — excellent for webapp/code gen
+  "openai/gpt-oss-120b:free",                       // OpenAI OSS 120B — high quality, large context
+  "nousresearch/hermes-3-llama-3.1-405b:free",      // Hermes 405B — last resort, very capable
 ];
 
 // Mandatory JSON prefix injected into every system prompt
@@ -69,9 +69,9 @@ export async function callOpenRouter(
       return text;
     } catch (errA) {
       const status = (errA as { status?: number }).status;
-      if (status === 429 || status === 503) {
-        // Rate-limited or unavailable — skip to next model immediately
-        logger.warn({ model, status }, "OpenRouter model rate-limited/unavailable, trying next model");
+      if (status === 429 || status === 503 || status === 404) {
+        // Rate-limited, unavailable, or model gone — skip to next model immediately
+        logger.warn({ model, status }, "OpenRouter model rate-limited/unavailable/gone, trying next model");
         lastErr = errA;
         continue;
       }
