@@ -4,25 +4,51 @@ import { logger } from "../logger.js";
 
 type OutputType = "doc" | "ppt" | "charts" | "webapp";
 
-// Resilient JSON extraction — handles fenced blocks, prose before/after, and raw JSON
+// Walk the string tracking brace depth, respecting string escapes.
+// Returns the substring from the first `{` to its matching `}`.
+function extractOutermostObject(text: string): string | null {
+  const start = text.indexOf("{");
+  if (start === -1) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (escape) { escape = false; continue; }
+    if (ch === "\\" && inString) { escape = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (ch === "{") depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0) return text.slice(start, i + 1);
+    }
+  }
+  return null; // unbalanced / truncated
+}
+
+// Resilient JSON extraction — balanced-brace walk first, regex fallback, raw fallback.
 function extractJson(text: string): unknown {
-  // 1. Try fenced code blocks (```json ... ``` or ``` ... ```)
-  const fenceMatches = [...text.matchAll(/```(?:json|JSON)?\s*([\s\S]*?)```/g)];
-  for (const m of fenceMatches) {
-    try { return JSON.parse(m[1].trim()); } catch { /* try next */ }
+  // 1. Balanced-brace walk — immune to ``` inside content or truncated fences
+  const obj = extractOutermostObject(text);
+  if (obj !== null) {
+    try { return JSON.parse(obj); } catch { /* fall through */ }
   }
 
-  // 2. Try extracting the outermost { } object
-  const objStart = text.indexOf("{");
-  const objEnd = text.lastIndexOf("}");
-  if (objStart !== -1 && objEnd > objStart) {
-    try { return JSON.parse(text.slice(objStart, objEnd + 1)); } catch { /* continue */ }
+  // 2. Fenced code block regex (greedy — picks the *last* closing fence)
+  const fenceMatch = text.match(/```(?:json|JSON)?\s*([\s\S]*?)```\s*$/);
+  if (fenceMatch) {
+    try { return JSON.parse(fenceMatch[1].trim()); } catch { /* fall through */ }
   }
 
-  // 3. Try the whole trimmed text
-  try { return JSON.parse(text.trim()); } catch { /* continue */ }
+  // 3. Whole trimmed text
+  try { return JSON.parse(text.trim()); } catch { /* fall through */ }
 
-  throw new Error(`Could not extract valid JSON from model response. Raw (first 500 chars): ${text.slice(0, 500)}`);
+  throw new Error(
+    `Could not extract valid JSON from model response. Raw (first 500 chars): ${text.slice(0, 500)}`
+  );
 }
 
 // Try Gemini first for text; if API call OR JSON parse fails, fall back to OpenRouter
