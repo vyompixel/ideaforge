@@ -17,7 +17,7 @@ export function getGeminiClient(): GoogleGenAI {
 export async function callGemini(prompt: string, systemInstruction?: string): Promise<string> {
   const ai = getGeminiClient();
   const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash",
+    model: "gemini-2.0-flash",
     contents: [{ role: "user", parts: [{ text: prompt }] }],
     config: {
       maxOutputTokens: 65536,

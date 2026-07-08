@@ -9,7 +9,8 @@ const FALLBACK_MODELS = [
   "meta-llama/llama-3.3-70b-instruct:free",        // Llama 3.3 70B — strong JSON following
   "qwen/qwen3-coder:free",                          // Qwen3 Coder 1M ctx — excellent for webapp/code gen
   "openai/gpt-oss-120b:free",                       // OpenAI OSS 120B — high quality, large context
-  "nousresearch/hermes-3-llama-3.1-405b:free",      // Hermes 405B — last resort, very capable
+  "nousresearch/hermes-3-llama-3.1-405b:free",      // Hermes 405B — very capable
+  "openrouter/free",                                // OpenRouter auto-routing — picks best available free model
 ];
 
 // Mandatory JSON prefix injected into every system prompt
