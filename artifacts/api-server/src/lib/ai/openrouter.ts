@@ -3,18 +3,22 @@ import { logger } from "../logger.js";
 
 const apiKey = process.env.OPENROUTER_API_KEY;
 
-// Llama 3.3 70B — strong JSON instruction-following, supports response_format JSON mode
-const FALLBACK_MODEL = "meta-llama/llama-3.3-70b-instruct:free";
+// Model chain — tried in order until one succeeds.
+// All are free on OpenRouter and have good JSON instruction-following.
+const FALLBACK_MODELS = [
+  "meta-llama/llama-3.3-70b-instruct:free",   // strong, supports json_object mode
+  "deepseek/deepseek-chat-v3-0324:free",       // excellent quality, different provider pool
+  "google/gemini-2.0-flash-exp:free",           // Google-hosted, separate rate limits
+  "mistralai/mistral-7b-instruct:free",         // small but reliable last resort
+];
 
-// Mandatory JSON prefix injected into every system prompt so callers cannot disable JSON mode
+// Mandatory JSON prefix injected into every system prompt
 const JSON_MANDATE =
   "You MUST respond with valid JSON only — no prose, no markdown fences, no explanation. Your entire response must be a single JSON object.\n\n";
 
-// Default system prompt when no caller-supplied one is given
-const DEFAULT_SYSTEM_PROMPT =
-  JSON_MANDATE + "You are a helpful assistant.";
+const DEFAULT_SYSTEM_PROMPT = JSON_MANDATE + "You are a helpful assistant.";
 
-// Conservative token limit known to be accepted on free routes
+// Conservative token limit known to be accepted across free routes
 const MAX_TOKENS = 16384;
 
 let _openrouter: OpenAI | null = null;
@@ -38,7 +42,7 @@ export async function callOpenRouter(
 ): Promise<string> {
   const client = getOpenRouterClient();
 
-  // Always prepend the JSON mandate — callers may only add context, not override the constraint
+  // Always prepend the JSON mandate — callers may add context but cannot disable the constraint
   const systemContent = extraSystemContext
     ? JSON_MANDATE + extraSystemContext
     : DEFAULT_SYSTEM_PROMPT;
@@ -48,27 +52,55 @@ export async function callOpenRouter(
     { role: "user", content: prompt },
   ];
 
-  // Attempt 1: response_format json_object (enforced at API level)
-  try {
-    const response = await client.chat.completions.create({
-      model: FALLBACK_MODEL,
-      max_tokens: MAX_TOKENS,
-      messages,
-      response_format: { type: "json_object" },
-    });
-    const text = response.choices[0]?.message?.content;
-    if (!text) throw new Error("OpenRouter returned empty response");
-    return text;
-  } catch (err) {
-    // Attempt 2: some provider routes reject response_format — retry with prompt-only enforcement
-    logger.warn({ err }, "OpenRouter JSON-mode request failed, retrying without response_format");
-    const response = await client.chat.completions.create({
-      model: FALLBACK_MODEL,
-      max_tokens: MAX_TOKENS,
-      messages,
-    });
-    const text = response.choices[0]?.message?.content;
-    if (!text) throw new Error("OpenRouter returned empty response on retry");
-    return text;
+  let lastErr: unknown;
+
+  for (const model of FALLBACK_MODELS) {
+    // Attempt A: with response_format json_object (API-level enforcement)
+    try {
+      const response = await client.chat.completions.create({
+        model,
+        max_tokens: MAX_TOKENS,
+        messages,
+        response_format: { type: "json_object" },
+      });
+      const text = response.choices[0]?.message?.content;
+      if (!text) throw new Error(`${model} returned empty response`);
+      logger.info({ model }, "OpenRouter model succeeded");
+      return text;
+    } catch (errA) {
+      const status = (errA as { status?: number }).status;
+      if (status === 429 || status === 503) {
+        // Rate-limited or unavailable — skip to next model immediately
+        logger.warn({ model, status }, "OpenRouter model rate-limited/unavailable, trying next model");
+        lastErr = errA;
+        continue;
+      }
+      // Attempt B: provider rejected response_format — retry same model without it
+      try {
+        logger.warn({ model, err: errA }, "OpenRouter JSON-mode rejected, retrying without response_format");
+        const response = await client.chat.completions.create({
+          model,
+          max_tokens: MAX_TOKENS,
+          messages,
+        });
+        const text = response.choices[0]?.message?.content;
+        if (!text) throw new Error(`${model} returned empty response on retry`);
+        logger.info({ model }, "OpenRouter model succeeded (no response_format)");
+        return text;
+      } catch (errB) {
+        const statusB = (errB as { status?: number }).status;
+        if (statusB === 429 || statusB === 503) {
+          logger.warn({ model, statusB }, "OpenRouter model rate-limited on retry, trying next model");
+          lastErr = errB;
+          continue;
+        }
+        lastErr = errB;
+        continue; // unexpected error — still try next model
+      }
+    }
   }
+
+  throw new Error(
+    `All OpenRouter fallback models exhausted. Last error: ${(lastErr as Error)?.message ?? String(lastErr)}`
+  );
 }
